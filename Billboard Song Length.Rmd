@@ -1,0 +1,423 @@
+---
+title: "Billboard Song Length"
+author: "Tyler Otto"
+date: "2025-06-30"
+output: html_document
+---
+
+
+## Billboard Top 100 Song Length Over Time
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+
+# install.packages(c("billboard", "spotifyr", "dplyr", "purrr", "lubridate", "stringr"))
+
+usethis::edit_r_environ()
+
+
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+
+library(billboard)  # We'll use a helper package below
+library(spotifyr)
+library(dplyr)
+library(purrr)
+library(lubridate)
+library(stringr)
+
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Put your credentials in .Renviron or hardcode for now:
+
+access_token <- get_spotify_access_token()
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# track <- search_spotify("Shape of You Ed Sheeran", type = "track", limit = 1)
+# 
+# track$duration_ms[1] / 1000  # should return ~233 seconds
+
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(rvest)
+
+url <- "https://www.billboard.com/charts/hot-100/2000-01-01"
+page <- read_html(url)
+
+page %>% html_elements("li.o-chart-results-list__item h3") %>% html_text2()
+
+page %>% html_elements("li.o-chart-results-list__item span.c-label") %>% html_text2()
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(rvest)
+
+
+get_billboard_hot100 <- function(chart_date) {
+  url <- paste0("https://www.billboard.com/charts/hot-100/", chart_date)
+  page <- read_html(url)
+  
+  # Get song titles
+  titles <- page %>%
+    html_elements("li.o-chart-results-list__item h3") %>%
+    html_text2() %>%
+    str_trim()
+
+  # Get all spans that may contain artists
+  all_labels <- page %>%
+    html_elements("li.o-chart-results-list__item span.c-label") %>%
+    html_text2() %>%
+    str_trim()
+
+  # Filter only likely artist names: those with letters and more than 2 characters
+  artists <- all_labels[str_detect(all_labels, "[A-Za-z]") & nchar(all_labels) > 2]
+
+  # Match lengths
+  len <- min(length(titles), length(artists), 100)
+
+  tibble(
+    date = chart_date,
+    rank = 1:len,
+    song = titles[1:len],
+    artist = artists[1:len]
+  )
+}
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+get_billboard_hot100("2000-01-01")
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# dates <- seq(as.Date("1980-01-01"), as.Date("2025-01-01"), by = "weeks") |> format()
+# raw_results <- map(dates, safely(get_billboard_hot100))
+# successful <- keep(raw_results, ~ is.null(.x$error))
+# billboard_data <- map_df(successful, "result")
+
+
+# 
+# for (yr in 1920:1979) {
+#   dates <- seq(as.Date(paste0(yr, "-01-01")), as.Date(paste0(yr, "-12-31")), by = "weeks") |> format()
+#   res <- map(dates, safely(get_billboard_hot100))
+#   ok <- keep(res, ~ is.null(.x$error))
+#   data <- map_df(ok, "result")
+#   write.csv(data, paste0("billboard_", yr, ".csv"), row.names = FALSE)
+#   cat("✔ Done:", yr, "\n")
+#   Sys.sleep(1)  # polite pause to avoid being blocked
+# }
+
+
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+
+file_list <- list.files(pattern = "^billboard_\\d{4}\\.csv$")
+
+billboard_all <- file_list %>%
+  map_df(read_csv)
+
+# Optional: Save combined file
+write_csv(billboard_all, "billboard_1920_to_2024.csv")
+
+billboard_1980_2025 <-billboard_all %>% 
+  filter(date >= '1980-01-01')
+
+
+billboard_1920_1979 <-billboard_all %>% 
+  filter(date < '1980-01-01')
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+billboard_top_10_1980_2025 <- billboard_all %>% 
+  filter(date >= '1980-01-01') %>% 
+  filter(rank <= 10) %>% 
+  distinct(song, artist, .keep_all = TRUE)
+
+billboard_top_10_1920_1979 <- billboard_all %>% 
+  filter(date < '1980-01-01') %>% 
+  filter(rank <= 10) %>% 
+  distinct(song, artist, .keep_all = TRUE)
+
+
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+get_duration_from_spotify <- function(song, artist) {
+  Sys.sleep(0.5)  # sleep for 0.5 seconds before each API call
+
+  query <- paste(song, artist)
+
+  result <- tryCatch({
+    res <- search_spotify(query, type = "track", limit = 1)
+    if (nrow(res) == 0) return(NA)
+    res$duration_ms[1] / 1000  # Convert to seconds
+  }, error = function(e) {
+    NA
+  })
+
+  return(result)
+}
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# test_data <- billboard_data %>% slice(1:10)
+# start <- Sys.time()
+#
+# # 10 = 7 sec
+#
+#  # spotify_merge_1980_2025 <- billboard_top_10_1980_2025 %>%
+#  #   # slice(1:20) %>%
+#  #   mutate(duration_sec = map2_dbl(song, artist, get_duration_from_spotify),
+#  #         duration_min = sprintf("%d:%02d", floor(duration_sec / 60), round(duration_sec %% 60)))
+# 
+#  spotify_merge_1920_1979 <- billboard_top_10_1920_1979 %>%
+#    # slice(1:20) %>%
+#    mutate(duration_sec = map2_dbl(song, artist, get_duration_from_spotify),
+#          duration_min = sprintf("%d:%02d", floor(duration_sec / 60), round(duration_sec %% 60)))
+# 
+# billboard_top_10_1920_1979
+# 
+#  end <- Sys.time()
+# 
+#  end - start
+
+# spotify_merge2 <- spotify_merge
+# #
+# save(spotify_merge2, file = "spotify_merge.RData")
+
+
+# 
+# save(spotify_merge_1980_2025, file = "spotify_merge_1980_2025.RData")
+# 
+# save(spotify_merge_1920_1979, file = "spotify_merge_1920_1979.RData")
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+# 
+# spotify_merge_all <- union_all(spotify_merge_1920_1979, spotify_merge_1980_2025) 
+# 
+# suspect_dupes <- spotify_merge_all %>%
+#   filter(!is.na(duration_sec)) %>%
+#   group_by(artist, duration_sec) %>%
+#   filter(n() > 1) %>%
+#   arrange(artist, duration_sec)
+# 
+# 
+# suspect_dupes %>%
+#   select(song, artist, duration_sec, date, rank) %>%
+#   arrange(artist, duration_sec)
+# 
+# 
+# spotify_cleaned_all <- spotify_merge_all %>%
+#   filter(!is.na(duration_sec)) %>%
+#   group_by(artist, duration_sec) %>%
+#   arrange(date, rank) %>%  # earliest and highest rank comes first
+#   slice(1) %>%
+#   ungroup()
+
+
+# save(spotify_cleaned_all, file = "spotify_cleaned_all.RData")
+
+load("spotify_cleaned_all.RData")
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+spotify_cleaned_all %>% 
+  dplyr::group_by(artist) %>% 
+  tally() %>% 
+  arrange(desc(n))
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+library(cowplot)
+library(png)
+library(grid)  
+
+library(magick)
+library(grid)
+library(magrittr)  # for %>%
+
+billboard_logo <- image_read("https://e7.pngegg.com/pngimages/537/556/png-clipart-united-states-billboard-charts-record-chart-the-hot-100-billboard-album-text.png") %>%
+  as.raster() %>%
+  rasterGrob(interpolate = TRUE)
+
+
+spotify_logo <- image_read("https://i.pinimg.com/736x/7b/17/93/7b17935f077f28bed6bac657700fb5cc.jpg") %>%
+  as.raster() %>%
+  rasterGrob(interpolate = TRUE)
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(ggplot2)
+library(lubridate)
+
+library(scales)  # for custom label formatting
+library(plotly)
+
+plot <- spotify_cleaned_all %>% 
+  filter(duration_sec <= 600) %>% 
+  ggplot(aes(
+    x = as.Date(date),
+    y = duration_sec,
+    text = paste0(
+      "Song: ", song, "<br>",
+      "Artist: ", artist, "<br>",
+      "Date: ", date, "<br>",
+      "Duration: ", duration_min
+    ),
+    group = 1
+  )) +
+  geom_jitter(color = "darkgreen", size = 1.5, alpha = 0.4, width = 10) +
+  geom_smooth(method = "gam", color = "darkblue", se = FALSE, linewidth = 1.2) +
+  scale_y_continuous(
+    name = "Song Duration",
+    labels = function(x) sprintf("%d:%02d", floor(x / 60), round(x %% 60))
+  ) +
+  labs(
+    title = "Billboard Hot 100 Top 10 Song Durations Over Time",
+    x = "Chart Date",
+    caption = "Data sources: Spotify Web API & Billboard Hot 100"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(size = 9, color = "gray40", hjust = 0)
+  )
+
+library(plotly)
+ggplotly(plot, tooltip = "text")
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Download images locally first
+download.file("https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Billboard_Logo_2013.svg/2560px-Billboard_Logo_2013.svg.png", destfile = "billboard.png", mode = "wb")
+download.file("https://brandlogos.net/wp-content/uploads/2017/01/spotify-logo_brandlogos.net_nxf2g.png", destfile = "spotify.png", mode = "wb")
+
+# Encode images to base64 strings
+billboard_b64 <- base64enc::dataURI(file = "billboard.png", mime = "image/png")
+spotify_b64 <- base64enc::dataURI(file = "spotify.png", mime = "image/png")
+```
+
+
+
+
+
+
+```{r fig.height=7, fig.width=9, message=FALSE, warning=TRUE}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+
+# Your ggplot base
+plot <- spotify_cleaned_all %>% 
+  filter(duration_sec <= 600, date>= '1958-08-06') %>% 
+  ggplot(aes(
+    x = as.Date(date),
+    y = duration_sec,
+    text = paste0(
+      "Song: ", song, "<br>",
+      "Artist: ", artist, "<br>",
+      "Date: ", date, "<br>",
+      "Duration: ", duration_min
+    ),
+    group = 1
+  )) +
+  geom_jitter(color = "darkgreen", size = 1.5, alpha = 0.4, width = 10) +
+  geom_smooth(method = "gam", color = "darkblue", se = FALSE, linewidth = 1.2) +
+  scale_y_continuous(
+    name = "Song Duration",
+    breaks = seq(0, 600, by = 60),
+    labels = function(x) sprintf("%d:%02d", floor(x / 60), round(x %% 60))
+  ) +
+  labs(
+    title = "Billboard Hot 100 Top 10 Song Durations Over Time",
+    x = "Chart Date"
+  ) +
+  theme_minimal()
+
+
+p <- ggplotly(plot + labs(title = NULL), tooltip = "text")  # remove ggplot title
+
+p <- layout(p,
+  title = NULL,  # make sure nothing else forces the title
+  images = list(
+    list(
+      source = billboard_b64,
+      xref = "paper", yref = "paper",
+      x = 0.7, y = 1.04,
+      sizex = 0.12, sizey = 0.12,
+      xanchor = "left", yanchor = "top"
+    ),
+    list(
+      source = spotify_b64,
+      xref = "paper", yref = "paper",
+      x = 0.85, y = 1.05,
+      sizex = 0.12, sizey = 0.12,
+      xanchor = "left", yanchor = "top"
+    )
+  ),
+  annotations = list(
+    list(  # Title text aligned with logos
+      text = "<b>Billboard Hot 100 Top 10 Song Durations Over Time</b>",
+      x = 0.34, y = 1.045,
+      xref = "paper", yref = "paper",
+      xanchor = "center", yanchor = "top",
+      showarrow = FALSE,
+      font = list(size = 16, color = "black")
+    ),
+    list(  # Data source footnote
+      text = "Data sources: Spotify Web API & Billboard Hot 100",
+      x = 0.05, y = 0.01,
+      xref = "paper", yref = "paper",
+      xanchor = "left", yanchor = "bottom",
+      showarrow = FALSE,
+      font = list(size = 10, color = "gray40")
+    )
+  ),
+  margin = list(t = 100)  # top margin to fit title
+)
+
+
+p
+```
+
+```{r}
+
+```
+
